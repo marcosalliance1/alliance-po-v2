@@ -6,10 +6,14 @@ import { formatBRL } from '../../utils/formatters'
 const secoesDe = (o: Orcamento): ItemOrcamento[] =>
   [...o.operacaoEstrutura, ...o.equipe, ...o.atracao, ...o.abBebidas, ...o.extras]
 
-// Valor de referência por item: se pago, o que foi pago; senão, o orçado.
-// "Pago (Comissão)" tem Total Pago zerado → usa o valor passado ao cliente (o que a comissão bancou).
+// Custo real por item (é um painel de CUSTOS):
+// - "Pago (Comissão)": Total Pago zerado → usa o valor que a comissão bancou.
+// - Pago/cartão: usa o Total Pago REAL. Se a Alliance não pagou (0), o custo é 0 — ex.: item
+//   de margem cobrado do cliente (a margem aparece na BV, não como custo pago aqui).
+// - Contratado/Pendente: ainda não pago → usa o pago se houver, senão o orçado (expectativa).
 function valorEfetivo(i: ItemOrcamento): number {
   if (i.status === 'PAGO_COMISSAO') return i.valorPassadoCliente || i.totalOrcado
+  if (i.status === 'PAGO' || isCartao(i.status)) return i.totalPagoReal
   return i.totalPagoReal > 0 ? i.totalPagoReal : i.totalOrcado
 }
 
