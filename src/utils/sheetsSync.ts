@@ -351,6 +351,30 @@ function parseTotalFormandos(values: unknown[][]): number | null {
   return null
 }
 
+// ACOMP. ATENDIMENTO v2 (modelo atualizado): layout em blocos numerados, então os totais são lidos pelo
+// RÓTULO ("TOTAL CONVIDADOS", "TOTAL ADESÕES") e o valor é o primeiro número positivo à direita dele.
+function parseTotalPorRotuloV2(values: unknown[][], rotuloNorm: string): number | null {
+  for (let r = 0; r < values.length; r++) {
+    const linha = (values[r] as unknown[]) ?? []
+    for (let c = 0; c < Math.min(linha.length, 4); c++) {
+      if (norm(parseStr(linha[c])) !== rotuloNorm) continue
+      for (let k = c + 1; k < linha.length; k++) {
+        const bruto = parseStr(linha[k])
+        if (!bruto || /R\$/.test(bruto)) continue
+        const n = parseNum(linha[k])
+        if (n > 0) return n
+      }
+      return null
+    }
+  }
+  return null
+}
+export const parseTotalConvidadosV2 = (values: unknown[][]) => parseTotalPorRotuloV2(values, 'total convidados')
+export const parseTotalAdesoesV2 = (values: unknown[][]) => parseTotalPorRotuloV2(values, 'total adesoes')
+export const ehAbaAcompV2 = (nomeAba: string) => /\bv2\b/.test(norm(nomeAba))
+// abas de cópia/backup da ACOMP. ATENDIMENTO (ex.: "ACOMP. ATENDIMENTO_bkp_2026-07-06") nunca são lidas
+export const ehAbaBackup = (nomeAba: string) => /\b(bkp|backup|copia)\b/.test(norm(nomeAba))
+
 function parseReceitasFromResumo(values: unknown[][]): Receitas {
   // Localiza a linha de cabeçalho da tabela de receitas:
   // col A = "ITEM" E a linha contém "vendido"/"orcado" (evita falso positivo em outras linhas com "ITEM")
@@ -634,6 +658,8 @@ export async function sincronizarComSheets(
   let resumoComercialParsed: LinhaResumoComercial[] = []
   let totalConvidadosAtual: number | null = null
   let totalAdesoesAtual: number | null = null
+  let totalConvidadosDeV2 = false
+  let totalAdesoesDeV2 = false
   const avisosItens: string[] = []
   let preEventoExtra: { id: string; numero: string; nome: string; itens: ItemCusto[] } | null = null
   let churrascoExtra: { id: string; numero: string; nome: string; itens: ItemCusto[] } | null = null
@@ -641,12 +667,23 @@ export async function sincronizarComSheets(
   for (const nomeAba of sheetNames) {
     const nomeN = norm(nomeAba)
     if (nomeN.includes('acomp') && (nomeN.includes('atendimento') || nomeN.includes('atend'))) {
+      if (ehAbaBackup(nomeAba)) continue
       onProgress(`Lendo ACOMP. Atendimento (${nomeAba})...`)
       try {
         const values = await fetchAba(spreadsheetId, nomeAba, accessToken)
         if (values) {
-          totalConvidadosAtual = parseTotalConvidados(values)
-          totalAdesoesAtual = parseTotalFormandos(values)
+          // v2 (modelo atualizado) tem prioridade sobre a aba antiga; se a v2 não trouxer o total, cai na antiga
+          if (ehAbaAcompV2(nomeAba)) {
+            const c = parseTotalConvidadosV2(values)
+            const a = parseTotalAdesoesV2(values)
+            if (c != null) { totalConvidadosAtual = c; totalConvidadosDeV2 = true }
+            if (a != null) { totalAdesoesAtual = a; totalAdesoesDeV2 = true }
+          } else {
+            const c = parseTotalConvidados(values)
+            const a = parseTotalFormandos(values)
+            if (!totalConvidadosDeV2) totalConvidadosAtual = c
+            if (!totalAdesoesDeV2) totalAdesoesAtual = a
+          }
         }
       } catch (e) {
         if ((e as Error & { tipo?: string }).tipo === 'TOKEN_EXPIRADO') throw e
