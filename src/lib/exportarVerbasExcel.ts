@@ -25,11 +25,11 @@ export interface CategoriaBloco extends LinhaValores {
   subcategorias: SubcategoriaBloco[]
 }
 
-export function exportarVerbasExcel(
+function montarLinhas(
   blocos: CategoriaBloco[],
   colunas: ColunaProjeto[],
   totalGeral: LinhaValores,
-) {
+): (string | number)[][] {
   const header = ['Categoria', 'Sub Categoria', 'Item', ...colunas.map(c => c.nome), 'Total']
   const linhas: (string | number)[][] = [header]
 
@@ -62,7 +62,20 @@ export function exportarVerbasExcel(
     totalGeral.total,
   ])
 
+  return linhas
+}
+
+export interface ConjuntoExport {
+  nomeAba: string
+  blocos: CategoriaBloco[]
+  totalGeral: LinhaValores
+}
+
+// Uma aba por conjunto (ex.: Orçado e Contratado), mesmas colunas de projeto em todas.
+export function exportarVerbasExcel(conjuntos: ConjuntoExport[], colunas: ColunaProjeto[]) {
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'Verbas')
+  for (const c of conjuntos) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(montarLinhas(c.blocos, colunas, c.totalGeral)), c.nomeAba)
+  }
   XLSX.writeFile(wb, `verbas_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
