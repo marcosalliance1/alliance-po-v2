@@ -270,6 +270,7 @@ export function Verbas() {
         segmento: segmentoDoTipo(p.tap.tipoEscola),
         local: (p.tap.local ?? '').trim(),
         data: dataCurta(p.tap.dataEvento),
+        dataIso: (p.tap.dataEvento ?? '').slice(0, 10),
         ano: String(p.tap.anoRealizacao || (p.tap.dataEvento ?? '').slice(0, 4) || ''),
         convidados: p.total_convidados_atual ?? 0,
       }))
@@ -348,13 +349,18 @@ export function Verbas() {
     metrica === 'contratado' ? r.contr > 0 : metrica === 'orcado' ? r.orc > 0 : true,
   ), [r4, metrica])
 
-  // Projetos separados por ano da festa; a bolinha mostra o ensino. Clicar no ano marca todos daquele ano.
+  // Projetos por ano da festa e, dentro do ano, por ensino; em cada um, na ordem da data da festa (sem data: por nome).
+  // Clicar no ano ou no ensino marca todos os projetos do grupo.
   const opProjetos: OpcaoMulti[] = useMemo(() =>
     [...projetos]
-      .sort((a, b) => (a.ano || '9999').localeCompare(b.ano || '9999') || a.nome.localeCompare(b.nome))
+      .sort((a, b) =>
+        (a.ano || '9999').localeCompare(b.ano || '9999')
+        || SEGMENTOS.indexOf(a.segmento) - SEGMENTOS.indexOf(b.segmento)
+        || (a.dataIso || '9999-99-99').localeCompare(b.dataIso || '9999-99-99')
+        || a.nome.localeCompare(b.nome))
       .map(p => ({
-        value: p.id, label: p.nome, grupo: p.ano ? `Festa em ${p.ano}` : 'Sem ano', cor: CORES_SEGMENTO[p.segmento],
-        dica: `${p.segmento.replace('Ensino ', '')}${p.data ? ' · ' + p.data : ''}`,
+        value: p.id, label: p.nome, grupo: p.ano ? `Festa em ${p.ano}` : 'Sem ano', subgrupo: p.segmento,
+        cor: CORES_SEGMENTO[p.segmento], dica: p.data || 'sem data',
       })),
   [projetos])
 

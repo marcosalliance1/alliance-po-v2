@@ -6,6 +6,8 @@ export interface OpcaoMulti {
   label: string
   /** Agrupa visualmente (ex.: segmento do projeto). Clicar no grupo marca/desmarca todos dele. */
   grupo?: string
+  /** 2º nível dentro do grupo (ex.: ensino dentro do ano). Clicar nele marca/desmarca só os dele. */
+  subgrupo?: string
   cor?: string
   dica?: string
 }
@@ -42,12 +44,17 @@ export function MultiSelect({ rotulo, vazio, opcoes, selecionados, onChange, lar
     return q ? opcoes.filter(o => semAcento(o.label).includes(q)) : opcoes
   }, [opcoes, busca])
 
+  // grupo → { todas as opções do grupo, subgrupos na ordem recebida }
   const grupos = useMemo(() => {
-    const m = new Map<string, OpcaoMulti[]>()
+    const m = new Map<string, { todas: OpcaoMulti[]; subs: Map<string, OpcaoMulti[]> }>()
     for (const o of visiveis) {
       const g = o.grupo ?? ''
-      if (!m.has(g)) m.set(g, [])
-      m.get(g)!.push(o)
+      if (!m.has(g)) m.set(g, { todas: [], subs: new Map() })
+      const e = m.get(g)!
+      e.todas.push(o)
+      const sg = o.subgrupo ?? ''
+      if (!e.subs.has(sg)) e.subs.set(sg, [])
+      e.subs.get(sg)!.push(o)
     }
     return [...m.entries()]
   }, [visiveis])
@@ -128,40 +135,56 @@ export function MultiSelect({ rotulo, vazio, opcoes, selecionados, onChange, lar
           </div>
           <div className="max-h-72 overflow-y-auto py-1">
             {visiveis.length === 0 && <p className="px-3 py-4 text-center text-xs text-text-muted">Nada encontrado.</p>}
-            {grupos.map(([g, lista]) => (
+            {grupos.map(([g, { todas, subs }]) => (
               <div key={g || '_'}>
                 {g && (
                   <button
                     type="button"
-                    onClick={() => alternarLista(lista)}
-                    className="flex w-full items-center gap-2 px-3 pb-1 pt-2 text-left text-[10px] font-bold uppercase tracking-wider text-text-muted hover:text-text-main"
+                    onClick={() => alternarLista(todas)}
+                    className="flex w-full items-center gap-2 border-t border-white/5 bg-white/[0.03] px-3 pb-1 pt-2 text-left text-[11px] font-bold uppercase tracking-wider text-text-main hover:bg-white/[0.07]"
                     title="Marcar ou desmarcar o grupo inteiro"
                   >
-                    {lista[0]?.cor && lista.every(x => x.cor === lista[0].cor) && <span className="h-2 w-2 rounded-full" style={{ background: lista[0].cor }} />}
+                    {todas[0]?.cor && todas.every(x => x.cor === todas[0].cor) && <span className="h-2 w-2 rounded-full" style={{ background: todas[0].cor }} />}
                     {g}
-                    <span className="font-normal normal-case tracking-normal">· {lista.length}</span>
+                    <span className="font-normal normal-case tracking-normal text-text-muted">· {todas.length}</span>
                   </button>
                 )}
-                {lista.map(o => {
-                  const on = selecionados.has(o.value)
-                  return (
-                    <button
-                      type="button"
-                      key={o.value}
-                      onClick={() => alternar(o.value)}
-                      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left hover:bg-white/5"
-                      role="option"
-                      aria-selected={on}
-                    >
-                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? 'border-primary bg-primary' : 'border-white/30'}`}>
-                        {on && <Check size={11} className="text-white" strokeWidth={3} />}
-                      </span>
-                      {o.cor && !lista.every(x => x.cor === o.cor) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: o.cor }} />}
-                      <span className="min-w-0 flex-1 truncate text-sm text-text-main">{o.label}</span>
-                      {o.dica && <span className="shrink-0 text-[11px] text-text-muted">{o.dica}</span>}
-                    </button>
-                  )
-                })}
+                {[...subs.entries()].map(([sg, lista]) => (
+                  <div key={sg || '_'}>
+                    {sg && (
+                      <button
+                        type="button"
+                        onClick={() => alternarLista(lista)}
+                        className="flex w-full items-center gap-2 px-3 pb-0.5 pl-5 pt-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-text-muted hover:text-text-main"
+                        title="Marcar ou desmarcar só este grupo"
+                      >
+                        {lista[0]?.cor && lista.every(x => x.cor === lista[0].cor) && <span className="h-2 w-2 rounded-full" style={{ background: lista[0].cor }} />}
+                        {sg}
+                        <span className="font-normal normal-case tracking-normal">· {lista.length}</span>
+                      </button>
+                    )}
+                    {lista.map(o => {
+                      const on = selecionados.has(o.value)
+                      return (
+                        <button
+                          type="button"
+                          key={o.value}
+                          onClick={() => alternar(o.value)}
+                          className={`flex w-full items-center gap-2.5 py-1.5 pr-3 text-left hover:bg-white/5 ${sg ? 'pl-7' : 'pl-3'}`}
+                          role="option"
+                          aria-selected={on}
+                        >
+                          <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? 'border-primary bg-primary' : 'border-white/30'}`}>
+                            {on && <Check size={11} className="text-white" strokeWidth={3} />}
+                          </span>
+                          {o.cor && !sg && !todas.every(x => x.cor === o.cor) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: o.cor }} />}
+                          <span className="min-w-0 flex-1 truncate text-sm text-text-main">{o.label}</span>
+                          {o.dica && <span className="shrink-0 text-[11px] text-text-muted">{o.dica}</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
