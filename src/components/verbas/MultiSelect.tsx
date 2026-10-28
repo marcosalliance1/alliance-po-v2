@@ -137,7 +137,7 @@ export function MultiSelect({ rotulo, vazio, opcoes, selecionados, onChange, lar
                     className="flex w-full items-center gap-2 px-3 pb-1 pt-2 text-left text-[10px] font-bold uppercase tracking-wider text-text-muted hover:text-text-main"
                     title="Marcar ou desmarcar o grupo inteiro"
                   >
-                    {lista[0]?.cor && <span className="h-2 w-2 rounded-full" style={{ background: lista[0].cor }} />}
+                    {lista[0]?.cor && lista.every(x => x.cor === lista[0].cor) && <span className="h-2 w-2 rounded-full" style={{ background: lista[0].cor }} />}
                     {g}
                     <span className="font-normal normal-case tracking-normal">· {lista.length}</span>
                   </button>
@@ -156,6 +156,7 @@ export function MultiSelect({ rotulo, vazio, opcoes, selecionados, onChange, lar
                       <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? 'border-primary bg-primary' : 'border-white/30'}`}>
                         {on && <Check size={11} className="text-white" strokeWidth={3} />}
                       </span>
+                      {o.cor && !lista.every(x => x.cor === o.cor) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: o.cor }} />}
                       <span className="min-w-0 flex-1 truncate text-sm text-text-main">{o.label}</span>
                       {o.dica && <span className="shrink-0 text-[11px] text-text-muted">{o.dica}</span>}
                     </button>

@@ -60,8 +60,23 @@ function contratadoDe(it: ItemRaw): number {
   return v > 0 ? v : 0
 }
 
+const compacta = (t: string) => t.replace(/\s+/g, ' ').trim()
+
 export function montarLinhas(projetos: ProjetoRaw[]): Linha[] {
   const out: Linha[] = []
+  // Subcategoria que os demais projetos usam para cada nome de item (para acertar o layout antigo, ex.: Balão Vermelho).
+  const subPadrao = new Map<string, Map<string, number>>()
+  for (const p of projetos) for (const secao of p.secoes ?? []) for (const it of secao.itens ?? []) {
+    const nome = compacta(it.item ?? ''); const sub = (it.subcategoria ?? '').trim()
+    if (!nome || !sub) continue
+    const k = nome.toLowerCase()
+    const m = subPadrao.get(k) ?? new Map<string, number>()
+    m.set(sub, (m.get(sub) ?? 0) + 1); subPadrao.set(k, m)
+  }
+  const subDe = (nome: string) => {
+    const m = subPadrao.get(nome.toLowerCase())
+    return m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : 'Outras'
+  }
   for (const p of projetos) {
     const tap = p.tap ?? {}
     const nome = tap.turma || `${tap.instituicao ?? ''} ${tap.curso ?? ''}`.trim() || p.id.slice(0, 6)
@@ -70,13 +85,17 @@ export function montarLinhas(projetos: ProjetoRaw[]): Linha[] {
       const categoria = categoriaDaSecao(secao.nome ?? '')
       if (!categoria) continue
       for (const it of secao.itens ?? []) {
-        if (!it.subcategoria?.trim()) continue // item-mãe / linha de grupo
+        let sub = (it.subcategoria ?? '').trim()
+        if (!sub) continue // item-mãe / linha de grupo
+        let nomeItem = compacta(it.item ?? '')
+        // Layout antigo: o nome do item veio na subcategoria e o item ficou vazio.
+        if (!nomeItem) { nomeItem = compacta(sub); sub = subDe(nomeItem) }
         const orcado = it.valorOrcado ?? 0
         const contratado = contratadoDe(it)
         if (orcado <= 0 && contratado <= 0) continue
         out.push({
           projeto: nome, ensino: ensinoDe(tap.tipoEscola), ano, local: (tap.local ?? '').trim(), data: (tap.dataEvento ?? '').slice(0, 10),
-          categoria, subcategoria: it.subcategoria.trim(), item: (it.item || '(sem nome)').trim(),
+          categoria, subcategoria: sub, item: nomeItem,
           fornecedor: (it.fornecedor ?? '').trim(), status: it.status ?? '', orcado, contratado,
         })
       }

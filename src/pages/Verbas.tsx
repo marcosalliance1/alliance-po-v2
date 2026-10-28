@@ -227,7 +227,6 @@ export function Verbas() {
   const [fProjetos, setFProjetos] = useState<Set<string>>(new Set())
   const [fLocais, setFLocais] = useState<Set<string>>(new Set())
   const [fCategorias, setFCategorias] = useState<Set<string>>(new Set())
-  const [fSubs, setFSubs] = useState<Set<string>>(new Set())
   const [fItens, setFItens] = useState<Set<string>>(new Set())
   const [fSegmentos, setFSegmentos] = useState<Set<string>>(new Set())
   const [fAnos, setFAnos] = useState<Set<string>>(new Set())
@@ -281,17 +280,35 @@ export function Verbas() {
 
   const todasLinhas = useMemo(() => {
     const lista: Linha[] = []
+    const compacta = (t: string) => t.replace(/\s+/g, ' ').trim()
+    // Subcategoria que os demais projetos usam para cada nome de item.
+    const subPadrao = new Map<string, Map<string, number>>()
+    for (const p of projetosRaw) for (const secao of p.secoes ?? []) for (const it of secao.itens ?? []) {
+      const nome = compacta(it.item ?? ''); const sub = (it.subcategoria ?? '').trim()
+      if (!nome || !sub) continue
+      const k = nome.toLowerCase()
+      const m = subPadrao.get(k) ?? new Map<string, number>()
+      m.set(sub, (m.get(sub) ?? 0) + 1); subPadrao.set(k, m)
+    }
+    const subDe = (nome: string) => {
+      const m = subPadrao.get(nome.toLowerCase())
+      return m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : 'Outras'
+    }
     for (const p of projetosRaw) {
       for (const secao of p.secoes ?? []) {
         const categoria = categoriaDaSecao(secao.nome)
         if (!categoria) continue
         for (const it of secao.itens ?? []) {
-          if (!it.subcategoria?.trim()) continue // item-mãe / linha de grupo
+          let sub = (it.subcategoria ?? '').trim()
+          if (!sub) continue // item-mãe / linha de grupo
+          let nomeItem = compacta(it.item ?? '')
+          // Layout antigo (ex.: Balão Vermelho): o nome do item veio na subcategoria e o item ficou vazio.
+          if (!nomeItem) { nomeItem = compacta(sub); sub = subDe(nomeItem) }
           const orc = it.valorOrcado ?? 0
           const contr = contratadoDe(it)
           if (orc <= 0 && contr <= 0) continue
           lista.push({
-            projetoId: p.id, categoria, sub: it.subcategoria.trim(), item: (it.item || '(sem nome)').trim(),
+            projetoId: p.id, categoria, sub, item: nomeItem,
             fornecedor: (it.fornecedor ?? '').trim(), status: it.status ?? '', orc, contr,
           })
         }
@@ -321,20 +338,25 @@ export function Verbas() {
   }, [grupos, fGrupos])
   const rg = useMemo(() => (fGrupos.size ? r1.filter(r => chavesGrupos.has(chaveItem(r.categoria, r.sub, r.item))) : r1), [r1, fGrupos, chavesGrupos])
   const r2 = useMemo(() => (fCategorias.size ? rg.filter(r => fCategorias.has(r.categoria)) : rg), [rg, fCategorias])
-  const r3 = useMemo(() => (fSubs.size ? r2.filter(r => fSubs.has(r.sub)) : r2), [r2, fSubs])
   const r4 = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    return r3.filter(r => (fItens.size === 0 || fItens.has(r.item)) && (!q || r.item.toLowerCase().includes(q) || r.sub.toLowerCase().includes(q)))
-  }, [r3, fItens, busca])
+    return r2.filter(r => (fItens.size === 0 || fItens.has(r.item)) && (!q || r.item.toLowerCase().includes(q) || r.sub.toLowerCase().includes(q)))
+  }, [r2, fItens, busca])
 
   // Linhas exibidas (depende da leitura escolhida)
   const R = useMemo(() => r4.filter(r =>
     metrica === 'contratado' ? r.contr > 0 : metrica === 'orcado' ? r.orc > 0 : true,
   ), [r4, metrica])
 
-  const opProjetos: OpcaoMulti[] = useMemo(() => projetos.map(p => ({
-    value: p.id, label: p.nome, grupo: p.segmento, cor: CORES_SEGMENTO[p.segmento], dica: p.data,
-  })), [projetos])
+  // Projetos separados por ano da festa; a bolinha mostra o ensino. Clicar no ano marca todos daquele ano.
+  const opProjetos: OpcaoMulti[] = useMemo(() =>
+    [...projetos]
+      .sort((a, b) => (a.ano || '9999').localeCompare(b.ano || '9999') || a.nome.localeCompare(b.nome))
+      .map(p => ({
+        value: p.id, label: p.nome, grupo: p.ano ? `Festa em ${p.ano}` : 'Sem ano', cor: CORES_SEGMENTO[p.segmento],
+        dica: `${p.segmento.replace('Ensino ', '')}${p.data ? ' · ' + p.data : ''}`,
+      })),
+  [projetos])
 
   const opLocais: OpcaoMulti[] = useMemo(() => {
     const cont = new Map<string, number>()
@@ -357,21 +379,20 @@ export function Verbas() {
     return CATEGORIAS_ORDEM.filter(c => tem.has(c)).map(c => ({ value: c, label: c }))
   }, [rg])
 
-  const opSubs: OpcaoMulti[] = useMemo(() => {
-    const cont = new Map<string, string>()
-    for (const r of r2) if (!cont.has(r.sub)) cont.set(r.sub, r.categoria)
-    return [...cont.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([s, c]) => ({ value: s, label: s, dica: fCategorias.size === 1 ? undefined : c }))
-  }, [r2, fCategorias])
+  // Itens agrupados pela subcategoria (ex.: Infraestrutura, Decoração). Clicar no grupo marca todos os itens dele.
+  const opItens: OpcaoMulti[] = useMemo(() => {
+    const subDoItem = new Map<string, string>()
+    for (const r of r2) if (!subDoItem.has(r.item)) subDoItem.set(r.item, r.sub)
+    return [...subDoItem.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]))
+      .map(([item, sub]) => ({ value: item, label: item, grupo: sub }))
+  }, [r2])
 
-  const opItens: OpcaoMulti[] = useMemo(() =>
-    [...new Set(r3.map(r => r.item))].sort((a, b) => a.localeCompare(b)).map(i => ({ value: i, label: i })),
-  [r3])
-
-  const temFiltro = fProjetos.size + fLocais.size + fSegmentos.size + fAnos.size + fGrupos.size + fCategorias.size + fSubs.size + fItens.size > 0 || busca.trim() !== ''
+  const temFiltro = fProjetos.size + fLocais.size + fSegmentos.size + fAnos.size + fGrupos.size + fCategorias.size + fItens.size > 0 || busca.trim() !== ''
   function limparFiltros() {
-    setFProjetos(new Set()); setFLocais(new Set()); setFSegmentos(new Set()); setFAnos(new Set()); setFGrupos(new Set()); setFCategorias(new Set()); setFSubs(new Set()); setFItens(new Set()); setBusca('')
+    setFProjetos(new Set()); setFLocais(new Set()); setFSegmentos(new Set()); setFAnos(new Set()); setFGrupos(new Set()); setFCategorias(new Set()); setFItens(new Set()); setBusca('')
   }
-  const abrirTudo = fSubs.size + fItens.size + fGrupos.size > 0 || busca.trim() !== ''
+  const abrirTudo = fItens.size + fGrupos.size > 0 || busca.trim() !== ''
 
   // Itens do filtro atual, de TODOS os projetos (o grupo é uma lista de itens, não de projetos).
   const itensParaGrupo = useMemo(() => {
@@ -380,13 +401,12 @@ export function Verbas() {
     for (const r of todasLinhas) {
       if (fGrupos.size && !chavesGrupos.has(chaveItem(r.categoria, r.sub, r.item))) continue
       if (fCategorias.size && !fCategorias.has(r.categoria)) continue
-      if (fSubs.size && !fSubs.has(r.sub)) continue
       if (fItens.size && !fItens.has(r.item)) continue
       if (q && !r.item.toLowerCase().includes(q) && !r.sub.toLowerCase().includes(q)) continue
       mapa.set(chaveItem(r.categoria, r.sub, r.item), { categoria: r.categoria, sub: r.sub, item: r.item })
     }
     return [...mapa.values()]
-  }, [todasLinhas, fGrupos, chavesGrupos, fCategorias, fSubs, fItens, busca])
+  }, [todasLinhas, fGrupos, chavesGrupos, fCategorias, fItens, busca])
 
   const totalItensDistintos = useMemo(() => new Set(todasLinhas.map(r => chaveItem(r.categoria, r.sub, r.item))).size, [todasLinhas])
   const podeSalvarGrupo = itensParaGrupo.length > 0 && itensParaGrupo.length < totalItensDistintos
@@ -408,7 +428,7 @@ export function Verbas() {
     if (error || !data) { setMsgGrupo(`Não consegui salvar: ${error?.message ?? 'sem resposta'}`); return }
     await carregarGrupos()
     // Passa a ver só o grupo recém-salvo, sem os outros filtros de item.
-    setFCategorias(new Set()); setFSubs(new Set()); setFItens(new Set()); setBusca('')
+    setFCategorias(new Set()); setFItens(new Set()); setBusca('')
     setFGrupos(new Set([data.id as string]))
     setNomeGrupo(''); setPainelGrupos('nenhum')
   }
@@ -524,7 +544,7 @@ export function Verbas() {
     const filtros = [
       descreve('Projetos', fProjetos, opProjetos), descreve('Ensino', fSegmentos, opSegmentos), descreve('Ano da festa', fAnos, opAnos),
       descreve('Local', fLocais, opLocais), descreve('Grupo', fGrupos, opGrupos), descreve('Categoria', fCategorias, opCategorias),
-      descreve('Subcategoria', fSubs, opSubs), descreve('Item', fItens, opItens), busca.trim() ? `Busca: "${busca.trim()}"` : null,
+      descreve('Item', fItens, opItens), busca.trim() ? `Busca: "${busca.trim()}"` : null,
     ].filter((x): x is string => x !== null)
     gerarPdfVerbas({
       metrica,
@@ -589,9 +609,8 @@ export function Verbas() {
           <MultiSelect rotulo="Ensino" vazio="Todos" opcoes={opSegmentos} selecionados={fSegmentos} onChange={setFSegmentos} />
           <MultiSelect rotulo="Ano da festa" vazio="Todos" opcoes={opAnos} selecionados={fAnos} onChange={setFAnos} />
           {opLocais.length > 0 && <MultiSelect rotulo="Local" vazio="Todos" opcoes={opLocais} selecionados={fLocais} onChange={setFLocais} />}
-          <MultiSelect rotulo="Grupo salvo" vazio={grupos.length ? 'Nenhum' : 'Sem grupos'} opcoes={opGrupos} selecionados={fGrupos} onChange={v => { setFGrupos(v); setFCategorias(new Set()); setFSubs(new Set()); setFItens(new Set()) }} />
-          <MultiSelect rotulo="Categoria" vazio="Todas" opcoes={opCategorias} selecionados={fCategorias} onChange={v => { setFCategorias(v); setFSubs(new Set()); setFItens(new Set()) }} />
-          <MultiSelect rotulo="Subcategoria" vazio="Todas" opcoes={opSubs} selecionados={fSubs} onChange={v => { setFSubs(v); setFItens(new Set()) }} />
+          <MultiSelect rotulo="Grupo salvo" vazio={grupos.length ? 'Nenhum' : 'Sem grupos'} opcoes={opGrupos} selecionados={fGrupos} onChange={v => { setFGrupos(v); setFCategorias(new Set()); setFItens(new Set()) }} />
+          <MultiSelect rotulo="Categoria" vazio="Todas" opcoes={opCategorias} selecionados={fCategorias} onChange={v => { setFCategorias(v); setFItens(new Set()) }} />
           <MultiSelect rotulo="Item" vazio="Todos" opcoes={opItens} selecionados={fItens} onChange={setFItens} largura={360} />
           <input
             type="text"
@@ -614,7 +633,7 @@ export function Verbas() {
           type="button"
           disabled={!podeSalvarGrupo}
           onClick={() => { setPainelGrupos(p => (p === 'salvar' ? 'nenhum' : 'salvar')); setMsgGrupo(null) }}
-          title={podeSalvarGrupo ? 'Guarda os itens que estão no filtro como um grupo com nome' : 'Filtre por categoria, subcategoria ou item para poder salvar um grupo'}
+          title={podeSalvarGrupo ? 'Guarda os itens que estão no filtro como um grupo com nome' : 'Filtre por categoria ou item para poder salvar um grupo'}
           className="rounded-lg border border-white/10 bg-surface-2 px-3 py-1.5 text-text-main hover:border-white/25 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Salvar filtro como grupo
